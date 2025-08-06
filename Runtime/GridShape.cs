@@ -129,7 +129,6 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		public static bool operator ==(GridShape left, GridShape right) => left.Equals(right);
 		public static bool operator !=(GridShape left, GridShape right) => !left.Equals(right);
 
-		// for some reason break Inspector editing
 		public bool Equals(GridShape other) => _size.Equals(other._size) && _data == other._data && _bitArray.Equals(other._bitArray);
 		public override bool Equals(object obj) => obj is GridShape other && Equals(other);
 		public override int GetHashCode() => HashCode.Combine(_size, _data, _bitArray);

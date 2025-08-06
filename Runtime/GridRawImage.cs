@@ -213,6 +213,7 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 			}
 		}
 
+#if UNITY_EDITOR
 		protected override void OnValidate()
 		{
 			_cacheDirty = true;
@@ -220,6 +221,8 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 			SetAllDirty();
 			base.OnValidate();
 		}
+
+#endif
 
 		// void OnDrawGizmosSelected()
 		// {
