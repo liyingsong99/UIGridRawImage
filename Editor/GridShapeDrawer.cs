@@ -37,7 +37,7 @@ namespace mitaywalle.UI.Packages.GridImage.Editor
 				int instanceId = property.serializedObject.targetObject.GetInstanceID();
 				(Vector2Int, uint)[,] cachedValues = GetCachedIndexValues(size.vector2IntValue, instanceId);
 
-				for (int j = size.vector2IntValue.y - 1; j >= 0; j--)
+				for (int j = 0; j < size.vector2IntValue.y; j++)
 				{
 					GUILayout.BeginHorizontal();
 

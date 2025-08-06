@@ -18,9 +18,6 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		// 修复：改为静态变量避免多实例冲突，兼容C# 9.0
 		private static List<Vector2Int> _buffer = new List<Vector2Int>();
 
-		// 添加StringBuilder对象池
-		private static readonly Stack<StringBuilder> _stringBuilderPool = new Stack<StringBuilder>();
-
 		/// <summary>
 		/// expected string format: <br/><br/>
 		/// 00110 <br/>
@@ -133,9 +130,9 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		public static bool operator !=(GridShape left, GridShape right) => !left.Equals(right);
 
 		// for some reason break Inspector editing
-		// public bool Equals(Shape other) => _size.Equals(other._size) && _data == other._data && _bitArray.Equals(other._bitArray);
-		// public override bool Equals(object obj) => obj is Shape other && Equals(other);
-		// public override int GetHashCode() => HashCode.Combine(_size, _data, _bitArray);
+		public bool Equals(GridShape other) => _size.Equals(other._size) && _data == other._data && _bitArray.Equals(other._bitArray);
+		public override bool Equals(object obj) => obj is GridShape other && Equals(other);
+		public override int GetHashCode() => HashCode.Combine(_size, _data, _bitArray);
 
 		public uint IndexFromPosition(int x, int y, bool invertY = false) => (uint)(InvertY(y, invertY) * _size.x + x);
 		private uint IndexFromPosition(uint x, uint y, bool invertY = false) => InvertY(y, invertY) * (uint)_size.x + x;
@@ -215,45 +212,25 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		public override string ToString()
 		{
 			// 使用对象池获取StringBuilder
-			StringBuilder builder;
-			lock (_stringBuilderPool)
+			StringBuilder builder = new StringBuilder();
+			builder.EnsureCapacity(_size.x * (_size.y + 1));
+
+			char[] line = new char[_size.x + 1];
+			line[line.Length - 1] = '\n';
+			int index = 0;
+
+			for (int y = 0; y < _size.y; y++)
 			{
-				builder = _stringBuilderPool.Count > 0 ? _stringBuilderPool.Pop() : new StringBuilder();
-			}
-
-			try
-			{
-				builder.Clear();
-				builder.EnsureCapacity(_size.x * (_size.y + 1));
-
-				char[] line = new char[_size.x + 1];
-				line[line.Length - 1] = '\n'; // 兼容C# 9.0，不使用^1语法
-				int index = 0;
-
-				for (int y = 0; y < _size.y; y++)
+				for (int x = 0; x < _size.x; x++)
 				{
-					for (int x = 0; x < _size.x; x++)
-					{
-						line[x] = _bitArray[IndexFromPosition(x, y, true)] ? '1' : '0';
-					}
-
-					builder.Insert(index, line);
-					index += line.Length;
+					line[x] = _bitArray[IndexFromPosition(x, y, true)] ? '1' : '0';
 				}
 
-				return builder.ToString();
+				builder.Insert(index, line);
+				index += line.Length;
 			}
-			finally
-			{
-				// 归还StringBuilder到对象池
-				lock (_stringBuilderPool)
-				{
-					if (_stringBuilderPool.Count < 10) // 限制池大小
-					{
-						_stringBuilderPool.Push(builder);
-					}
-				}
-			}
+
+			return builder.ToString();
 		}
 
 		void ISerializationCallbackReceiver.OnBeforeSerialize()
