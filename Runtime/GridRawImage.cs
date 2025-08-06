@@ -27,7 +27,14 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 
 		DrivenRectTransformTracker _tracker;
 
-		static List<Vector2Int> _buffer = new List<Vector2Int>();
+		// 修复：改为实例变量避免多实例冲突
+		private List<Vector2Int> _buffer = new List<Vector2Int>();
+		// 添加缓存机制
+		private List<Vector2Int> _cachedValidPositions = new List<Vector2Int>();
+		private bool _cacheDirty = true;
+		private RectInt _cachedValidRect;
+		private bool _rectCacheDirty = true;
+
 		Color32 color32;
 		RectInt _validRect;
 
@@ -54,7 +61,31 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		public void SetShape(GridShape shape)
 		{
 			_shape = shape;
+			_cacheDirty = true;
+			_rectCacheDirty = true;
 			SetAllDirty();
+		}
+
+		// 添加缓存获取有效位置的方法
+		private void GetCachedValidPositions()
+		{
+			if (_cacheDirty)
+			{
+				_cachedValidPositions.Clear();
+				_shape.GetValidPositions(_cachedValidPositions);
+				_cacheDirty = false;
+			}
+		}
+
+		// 添加缓存获取有效矩形的方法
+		private RectInt GetCachedValidRect()
+		{
+			if (_rectCacheDirty)
+			{
+				_cachedValidRect = _shape.GetValidRect();
+				_rectCacheDirty = false;
+			}
+			return _cachedValidRect;
 		}
 
 		protected override void OnPopulateMesh(VertexHelper vh)
@@ -62,7 +93,8 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 			vh.Clear();
 			color32 = color;
 
-			_shape.GetValidPositions(_buffer);
+			// 使用缓存的有效位置
+			GetCachedValidPositions();
 			Vector2 offset = rectTransform.pivot * _cellSize;
 			switch (_resize)
 			{
@@ -73,10 +105,8 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 					}
 				case GridRawImageResize.ValidPositions:
 					{
-						_validRect = _shape.GetValidRect();
+						_validRect = GetCachedValidRect();
 						offset *= -_validRect.min;
-						//offset = (_validRect.min - _validRect.size) * _cellSize;
-						Debug.Log($"{_shape.Size} {_validRect.size} {_validRect.min}");
 						break;
 					}
 				case GridRawImageResize.None:
@@ -86,11 +116,11 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 					}
 			}
 
-			if (_buffer.Count > 0)
+			if (_cachedValidPositions.Count > 0)
 			{
-				for (int i = 0; i < _buffer.Count; i++)
+				for (int i = 0; i < _cachedValidPositions.Count; i++)
 				{
-					Vector2 position = _buffer[i] * _cellSize + offset;
+					Vector2 position = _cachedValidPositions[i] * _cellSize + offset;
 					DrawPosition(vh, position, i);
 				}
 			}
@@ -117,21 +147,20 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 			if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rectTransform, screenPoint, eventCamera, out local))
 				return false;
 
-			_shape.GetValidPositions(_buffer);
+			// 优化：快速边界检查
+			if (local.x < -_extrude || local.y < -_extrude ||
+				local.x > _cellSize.x * _shape.Size.x + _extrude ||
+				local.y > _cellSize.y * _shape.Size.y + _extrude)
+				return false;
 
-			if (_buffer.Count == 0) return false;
-			for (int i = 0; i < _buffer.Count; i++)
-			{
-				Vector2 p = _buffer[i] * _cellSize;
-				Vector4 corners = new Vector4(p.x - _extrude, p.y - _extrude, p.x + _cellSize.x + _extrude, p.y + _cellSize.y + _extrude);
-				Rect rect = new Rect(corners.x, corners.y, corners.z - corners.x, corners.w - corners.y);
+			// 计算网格位置
+			Vector2Int gridPos = new Vector2Int(
+				Mathf.FloorToInt(local.x / _cellSize.x),
+				Mathf.FloorToInt(local.y / _cellSize.y)
+			);
 
-				if (rect.Contains(local))
-				{
-					return true;
-				}
-			}
-			return false;
+			// 直接检查是否在有效位置
+			return _shape.Contains(gridPos);
 		}
 
 		public void SetLayoutHorizontal()
@@ -153,7 +182,7 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 					}
 				case GridRawImageResize.ValidPositions:
 					{
-						_validRect = _shape.GetValidRect();
+						_validRect = GetCachedValidRect();
 						rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, (_validRect.size.x + 1) * _cellSize.x);
 						break;
 					}
@@ -177,7 +206,7 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 					}
 				case GridRawImageResize.ValidPositions:
 					{
-						_validRect = _shape.GetValidRect();
+						_validRect = GetCachedValidRect();
 						rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, (_validRect.size.y + 1) * _cellSize.y);
 						break;
 					}
@@ -186,6 +215,8 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 
 		protected override void OnValidate()
 		{
+			_cacheDirty = true;
+			_rectCacheDirty = true;
 			SetAllDirty();
 			base.OnValidate();
 		}

@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 using UnityEngine;
 
 namespace mitaywalle.UI.Packages.GridImage.Runtime
@@ -11,7 +14,12 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 	{
 		public static GridShape Rectangle2X2 = new(new Vector2Int(2, 2));
 		public static GridShape Default = Rectangle2X2;
-		static List<Vector2Int> _buffer = new();
+
+		// 修复：改为静态变量避免多实例冲突，兼容C# 9.0
+		private static List<Vector2Int> _buffer = new List<Vector2Int>();
+
+		// 添加StringBuilder对象池
+		private static readonly Stack<StringBuilder> _stringBuilderPool = new Stack<StringBuilder>();
 
 		/// <summary>
 		/// expected string format: <br/><br/>
@@ -21,7 +29,12 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		/// </summary>
 		public static void FromString(ref GridShape gridShape, string text)
 		{
+			if (string.IsNullOrEmpty(text))
+				return;
+
 			string[] lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+			if (lines.Length == 0)
+				return;
 
 			gridShape._size = new Vector2Int(lines[0].Length, lines.Length);
 
@@ -44,7 +57,7 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		/// </summary>
 		public static GridShape FromString(string text)
 		{
-			GridShape gridShape = new();
+			GridShape gridShape = new GridShape();
 			FromString(ref gridShape, text);
 			return gridShape;
 		}
@@ -81,10 +94,10 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 				}
 			}
 
-        #if UNITY_EDITOR
+#if UNITY_EDITOR
 			_previewValues = null;
 			OnInspectorInit();
-        #endif
+#endif
 		}
 
 		public GridShape Extrude(int x = 1, int y = 1)
@@ -201,23 +214,46 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		/// </summary>
 		public override string ToString()
 		{
-			var builder = new StringBuilder(_size.x * (_size.y + 1));
-			char[] line = new char[_size.x + 1];
-			line[^1] = '\n';
-			int index = 0;
-
-			for (int y = 0; y < _size.y; y++)
+			// 使用对象池获取StringBuilder
+			StringBuilder builder;
+			lock (_stringBuilderPool)
 			{
-				for (int x = 0; x < _size.x; x++)
-				{
-					line[x] = _bitArray[IndexFromPosition(x, y, true)] ? '1' : '0';
-				}
-
-				builder.Insert(index, line);
-				index += line.Length;
+				builder = _stringBuilderPool.Count > 0 ? _stringBuilderPool.Pop() : new StringBuilder();
 			}
 
-			return builder.ToString();
+			try
+			{
+				builder.Clear();
+				builder.EnsureCapacity(_size.x * (_size.y + 1));
+
+				char[] line = new char[_size.x + 1];
+				line[line.Length - 1] = '\n'; // 兼容C# 9.0，不使用^1语法
+				int index = 0;
+
+				for (int y = 0; y < _size.y; y++)
+				{
+					for (int x = 0; x < _size.x; x++)
+					{
+						line[x] = _bitArray[IndexFromPosition(x, y, true)] ? '1' : '0';
+					}
+
+					builder.Insert(index, line);
+					index += line.Length;
+				}
+
+				return builder.ToString();
+			}
+			finally
+			{
+				// 归还StringBuilder到对象池
+				lock (_stringBuilderPool)
+				{
+					if (_stringBuilderPool.Count < 10) // 限制池大小
+					{
+						_stringBuilderPool.Push(builder);
+					}
+				}
+			}
 		}
 
 		void ISerializationCallbackReceiver.OnBeforeSerialize()
@@ -227,19 +263,35 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 
 		void ISerializationCallbackReceiver.OnAfterDeserialize()
 		{
-			if (_readable) FromString(_data);
+			// 修复序列化问题：添加空值检查
+			if (_readable && !string.IsNullOrEmpty(_data))
+			{
+				FromString(ref this, _data);
+			}
 			_data = null;
 		}
 
 		public bool this[Vector2Int coord]
 		{
 			get => Contains(coord);
-			set => _bitArray[IndexFromPosition(coord.x, coord.y)] = value;
+			set
+			{
+				// 添加边界检查
+				if (coord.x < 0 || coord.y < 0 || coord.x >= _size.x || coord.y >= _size.y)
+					return;
+				_bitArray[IndexFromPosition(coord.x, coord.y)] = value;
+			}
 		}
 		public bool this[int x, int y]
 		{
 			get => Contains(x, y);
-			set => _bitArray[IndexFromPosition(x, y)] = value;
+			set
+			{
+				// 添加边界检查
+				if (x < 0 || y < 0 || x >= _size.x || y >= _size.y)
+					return;
+				_bitArray[IndexFromPosition(x, y)] = value;
+			}
 		}
 		public bool this[uint i]
 		{
@@ -249,10 +301,16 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 		public bool this[uint x, uint y]
 		{
 			get => Contains((int)x, (int)y);
-			set => _bitArray[IndexFromPosition(x, y)] = value;
+			set
+			{
+				// 添加边界检查
+				if (x >= _size.x || y >= _size.y)
+					return;
+				_bitArray[IndexFromPosition(x, y)] = value;
+			}
 		}
 
-    #region Editor
+		#region Editor
 #if UNITY_EDITOR
 		(Vector2Int, uint)[,] _previewValues;
 
@@ -302,6 +360,6 @@ namespace mitaywalle.UI.Packages.GridImage.Runtime
 			return value;
 		}
 #endif
-    #endregion
+		#endregion
 	}
 }
